@@ -1,69 +1,151 @@
-'use client';
-
+import { useMemo } from 'react';
 import {
   SessionProvider,
   useSession,
   VideoConference,
   setLogLevel,
-  SessionEvent,
   useEvents,
+  useDataChannel,
+  SessionEvent,
 } from '@livekit/components-react';
 import type { NextPage } from 'next';
-import { generateRandomUserId } from '../lib/helper';
-import { useMemo, useEffect, useState } from 'react';
-import { TokenSource, MediaDeviceFailure } from 'livekit-client';
+import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
+import { RoomEvent, TokenSource, MediaDeviceFailure } from 'livekit-client';
 
 const tokenSource = TokenSource.endpoint(process.env.NEXT_PUBLIC_LK_TOKEN_ENDPOINT!);
 
-const MinimalExample: NextPage = () => {
-  const params = useMemo(
-    () => (typeof window !== 'undefined' ? new URLSearchParams(location.search) : null),
-    [],
-  );
-  const roomName = params?.get('room') ?? 'test-room';
-  setLogLevel('debug', { liveKitClientLogLevel: 'info' });
+const TranscriptionOverlay = () => {
+  const [messages, setMessages] = useState<{ id: number; text: string; user: string }[]>([]);
 
-  const [userIdentity] = useState(() => params?.get('user') ?? generateRandomUserId());
+  // Fixed hook signature: topic first, then callback with typed message
+  useDataChannel('transcriptions', (message: any) => {
+    try {
+      const decoded = JSON.parse(new TextDecoder().decode(message.payload));
 
-  const session = useSession(tokenSource, {
-    roomName,
-    participantIdentity: userIdentity,
-    participantName: userIdentity,
+      if (decoded.type === 'transcript') {
+        const newMessage = {
+          id: Date.now(),
+          text: decoded.text,
+          user: decoded.participantId,
+        };
+
+        setMessages((prev) => [...prev.slice(-2), newMessage]);
+
+        // Auto-cleanup after 6 seconds
+        setTimeout(() => {
+          setMessages((prev) => prev.filter((m) => m.id !== newMessage.id));
+        }, 6000);
+      }
+    } catch (e: any) {
+      console.error('Data Channel Parse Error:', e);
+    }
   });
 
-  useEffect(() => {
-    session
-      .start({
-        tracks: {
-          microphone: { enabled: false },
-        },
-      })
-      .catch((err) => {
-        console.error('Failed to start session:', err);
-      });
-    return () => {
-      session.end().catch((err) => {
-        console.error('Failed to end session:', err);
-      });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.start, session.end]);
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        bottom: '15%',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 100,
+        width: '90%',
+        maxWidth: '700px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        pointerEvents: 'none',
+      }}
+    >
+      {messages.map((m) => (
+        <div
+          key={m.id}
+          style={{
+            background: 'rgba(0, 0, 0, 0.75)',
+            color: 'white',
+            padding: '10px 20px',
+            borderRadius: '10px',
+            fontSize: '1.25rem',
+            textAlign: 'center',
+            border: '1px solid rgba(255,255,255,0.1)',
+            animation: 'fadeUp 0.3s ease-out',
+          }}
+        >
+          <span style={{ color: '#60a5fa', fontWeight: 'bold' }}>{m.user}: </span> {m.text}
+        </div>
+      ))}
+      <style jsx>{`
+        @keyframes fadeUp {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
+    </div>
+  );
+};
 
-  useEvents(session, SessionEvent.MediaDevicesError, (error) => {
-    const failure = MediaDeviceFailure.getFailure(error);
-    console.error(failure);
-    alert(
-      'Error acquiring camera or microphone permissions. Please make sure you grant the necessary permissions in your browser and reload the tab',
+const MinimalExample: NextPage = () => {
+  const router = useRouter();
+  const { room, user } = router.query;
+  const roomName = typeof room === 'string' ? room : '';
+  const userIdentity = typeof user === 'string' ? user : '';
+
+  setLogLevel('debug', { liveKitClientLogLevel: 'info' });
+
+  const sessionOptions = useMemo(() => {
+    return {
+      roomName,
+      participantIdentity: userIdentity,
+      participantName: userIdentity,
+    };
+  }, [roomName, userIdentity]);
+
+  const session = useSession(tokenSource, sessionOptions);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    if (!roomName || !userIdentity) {
+      router.push('/');
+      return;
+    }
+    session
+      .start({ tracks: { microphone: { enabled: true } } }) // Mic must be on for transcription
+      .catch((err) => console.error('Start error:', err));
+    return () => {
+      session.end().catch(console.error);
+    };
+  }, [router.isReady, roomName, userIdentity]);
+
+  useEffect(() => {
+    if (!session.room) return;
+    const onDisconnected = () => router.push('/');
+    session.room.on(RoomEvent.Disconnected, onDisconnected);
+    return () => {
+      session.room.off(RoomEvent.Disconnected, onDisconnected);
+    };
+  }, [session.room, router]);
+
+  if (!session.isConnected) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <h2>Loading...</h2>
+      </div>
     );
-  }, []);
+  }
 
   return (
-    <div data-lk-theme="default" style={{ height: '100vh' }}>
-      {session.isConnected && (
-        <SessionProvider session={session}>
-          <VideoConference />
-        </SessionProvider>
-      )}
+    <div data-lk-theme="default" style={{ height: '100vh', position: 'relative', background: '#111' }}>
+      <SessionProvider session={session}>
+        <VideoConference />
+        <TranscriptionOverlay />
+      </SessionProvider>
     </div>
   );
 };

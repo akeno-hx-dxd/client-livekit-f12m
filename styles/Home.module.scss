@@ -1,19 +1,30 @@
 .main {
-  min-height: 50vh;
-  margin: 5%;
-  display: grid;
-  place-content: center;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
-ul.examples {
-  list-style: disc;
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 300px;
 }
 
-li.list-item {
-  margin-top: 1rem;
-  margin-left: 1rem;
+.form input {
+  padding: 0.5rem;
+  border-radius: 5px;
+  border: 1px solid #ccc;
 }
 
-a.link {
-  text-decoration: underline;
+.form button {
+  padding: 0.5rem;
+  border-radius: 5px;
+  border: none;
+  background-color: #0070f3;
+  color: white;
+  cursor: pointer;
 }
