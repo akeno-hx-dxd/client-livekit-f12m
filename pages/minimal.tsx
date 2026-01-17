@@ -93,9 +93,10 @@ const TranscriptionOverlay = () => {
 
 const MinimalExample: NextPage = () => {
   const router = useRouter();
-  const { room, user } = router.query;
+  const { room, user, isRecording } = router.query;
   const roomName = typeof room === 'string' ? room : '';
   const userIdentity = typeof user === 'string' ? user : '';
+  const isRecordingMode = isRecording === 'true';
 
   setLogLevel('debug', { liveKitClientLogLevel: 'info' });
 
@@ -103,9 +104,10 @@ const MinimalExample: NextPage = () => {
     return {
       roomName,
       participantIdentity: userIdentity,
-      participantName: userIdentity,
+      participantName: isRecordingMode ? 'Recorder' : userIdentity,
     };
-  }, [roomName, userIdentity]);
+  }, [roomName, userIdentity, isRecordingMode]);
+
 
   const session = useSession(tokenSource, sessionOptions);
 
@@ -115,13 +117,20 @@ const MinimalExample: NextPage = () => {
       router.push('/');
       return;
     }
+
+    const tracks = isRecordingMode
+      ? { microphone: { enabled: false }, camera: { enabled: false } } // Bot doesn't need to publish
+      : { microphone: { enabled: true } }; // Regular users enable mic
+
     session
-      .start({ tracks: { microphone: { enabled: true } } }) // Mic must be on for transcription
+      .start({ tracks })
       .catch((err) => console.error('Start error:', err));
+
     return () => {
       session.end().catch(console.error);
     };
-  }, [router.isReady, roomName, userIdentity]);
+  }, [router.isReady, roomName, userIdentity, isRecordingMode]);
+
 
   useEffect(() => {
     if (!session.room) return;
